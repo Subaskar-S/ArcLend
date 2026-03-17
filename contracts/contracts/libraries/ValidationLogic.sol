@@ -68,7 +68,7 @@ library ValidationLogic {
                 uint256 totalDebt,
                 uint256 currentLiquidationThreshold
             ) = GenericLogic.calculateUserAccountData(
-                    reservesData, userConfig, reservesList, reservesCount, oracle
+                    reservesData, userConfig, reservesList, reservesCount, oracle, msg.sender
                 );
 
             if (totalDebt == 0) return;
@@ -97,9 +97,7 @@ library ValidationLogic {
     }
 
     function validateBorrow(
-        address reserveAddress,
         DataTypes.ReserveData storage reserve,
-        address userAddress,
         uint256 amount,
         uint256 amountInBaseCurrency,
         mapping(address => DataTypes.ReserveData) storage reservesData,
@@ -118,7 +116,7 @@ library ValidationLogic {
             uint256 totalDebt,
             uint256 currentLiquidationThreshold
         ) = GenericLogic.calculateUserAccountData(
-                reservesData, userConfig, reservesList, reservesCount, oracle
+                reservesData, userConfig, reservesList, reservesCount, oracle, msg.sender
             );
 
         require(currentLiquidationThreshold > 0, "VL: NO_COLLATERAL");

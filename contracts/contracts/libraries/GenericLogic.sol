@@ -58,7 +58,8 @@ library GenericLogic {
             userConfig,
             reservesList,
             reservesCount,
-            oracle
+            oracle,
+            user
         );
 
         healthFactor = totalDebtBase == 0
@@ -77,7 +78,8 @@ library GenericLogic {
         DataTypes.UserConfigurationMap storage userConfig,
         mapping(uint256 => address) storage reservesList,
         uint256 reservesCount,
-        address oracle
+        address oracle,
+        address user
     )
         internal
         view
@@ -97,9 +99,7 @@ library GenericLogic {
             address reserveAddress = reservesList[i];
             DataTypes.ReserveData storage reserve = reservesData[reserveAddress];
 
-            // ── [FIX-12]: Oracle price normalization ────────────────────────────
-            // Our PriceOracle contract normalizes all prices to 18 decimals.
-            // We still assert non-zero here as a safety net.
+            // [FIX-12]: Oracle prices are WAD (18-decimal). Assert non-zero.
             uint256 assetPrice = IPriceOracle(oracle).getAssetPrice(reserveAddress);
             require(assetPrice > 0, "GenericLogic: zero price");
 
@@ -108,9 +108,7 @@ library GenericLogic {
 
             // Count collateral contributions
             if (_isUsingAsCollateral(userConfig, i) && reserve.liquidationThreshold > 0) {
-                // scaledBalance * index = actual balance
-                // actual balance * price = base currency value
-                uint256 userATokenBalance = _getScaledBalanceOf(reserve.aTokenAddress, msg.sender);
+                uint256 userATokenBalance = _getScaledBalanceOf(reserve.aTokenAddress, user);
                 uint256 actualBalance = userATokenBalance.rayMul(normalizedIncome);
                 uint256 collateralValue = actualBalance.wadMul(assetPrice);
 
@@ -120,7 +118,7 @@ library GenericLogic {
 
             // Count debt contributions
             if (_isBorrowing(userConfig, i)) {
-                uint256 userDebtBalance = _getScaledDebtOf(reserve.debtTokenAddress, msg.sender);
+                uint256 userDebtBalance = _getScaledDebtOf(reserve.debtTokenAddress, user);
                 uint256 actualDebt = userDebtBalance.rayMul(normalizedDebt);
                 totalDebtBase += actualDebt.wadMul(assetPrice);
             }

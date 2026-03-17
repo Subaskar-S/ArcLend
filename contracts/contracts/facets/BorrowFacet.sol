@@ -69,9 +69,7 @@ contract BorrowFacet {
         uint256 amountInBaseCurrency = amount.wadMul(assetPrice);
 
         ValidationLogic.validateBorrow(
-            asset,
             reserve,
-            onBehalfOf,
             amount,
             amountInBaseCurrency,
             s.reserves,
