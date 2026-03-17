@@ -6,7 +6,7 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
  * @title PriceOracle
- * @notice Simple admin-controlled price oracle for Phase 1.
+ * @notice Simple admin-controlled price oracle.
  * @dev Compatible with Chainlink interface expectation (returns prices).
  */
 contract PriceOracle is IPriceOracle, AccessControl {

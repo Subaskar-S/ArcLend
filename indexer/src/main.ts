@@ -10,7 +10,7 @@ async function main() {
         port: parseInt(process.env.DB_PORT || "5432"),
         user: process.env.DB_USER || "postgres",
         password: process.env.DB_PASSWORD || "postgres",
-        database: process.env.DB_NAME || "aave_lending",
+        database: process.env.DB_NAME || "arc_lending",
     });
 
     const rpcUrl = process.env.RPC_URL || "http://localhost:8545";

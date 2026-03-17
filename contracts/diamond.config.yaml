@@ -1,0 +1,86 @@
+diamond:
+  name: "ArcLend"
+  artifactsDir: "./artifacts"  # Hardhat artifacts dir
+
+  networks:
+    localhost:
+      rpc: "http://127.0.0.1:8545"
+      chainId: 31337
+      accounts:
+        mnemonic: "test test test test test test test test test test test junk"
+
+    hardhat:
+      rpc: "http://127.0.0.1:8545"
+      chainId: 31337
+      accounts:
+        mnemonic: "test test test test test test test test test test test junk"
+
+    sepolia:
+      rpc: "${SEPOLIA_RPC_URL}"
+      chainId: 11155111
+      accounts:
+        privateKey: "${DEPLOYER_PRIVATE_KEY}"
+
+    mainnet:
+      rpc: "${MAINNET_RPC_URL}"
+      chainId: 1
+      accounts:
+        privateKey: "${DEPLOYER_PRIVATE_KEY}"
+
+  facets:
+    # ── EIP-2535 Standard Facets ─────────────────────────────────────────────
+    - name: "DiamondCutFacet"
+      contract: "DiamondCutFacet"
+      selectors: "auto"
+
+    - name: "DiamondLoupeFacet"
+      contract: "DiamondLoupeFacet"
+      selectors: "auto"
+
+    - name: "OwnershipFacet"
+      contract: "OwnershipFacet"
+      selectors: "auto"
+
+    # ── Protocol Facets ───────────────────────────────────────────────────────
+    - name: "LendingPoolFacet"
+      contract: "LendingPoolFacet"
+      selectors: "auto"
+
+    - name: "BorrowFacet"
+      contract: "BorrowFacet"
+      selectors: "auto"
+
+    - name: "LiquidationFacet"
+      contract: "LiquidationFacet"
+      selectors: "auto"
+
+    - name: "ConfiguratorFacet"
+      contract: "ConfiguratorFacet"
+      selectors: "auto"
+
+    - name: "ViewFacet"
+      contract: "ViewFacet"
+      selectors: "auto"
+
+  # ── Initializer ──────────────────────────────────────────────────────────────
+  # DiamondInit is called once via delegatecall after the initial diamondCut.
+  # It sets up admin roles and the price oracle address.
+  # IMPORTANT: Replace ADMIN_ADDRESS and ORACLE_ADDRESS before deploying to live networks.
+  init:
+    contract: "DiamondInit"
+    function: "init"
+    args:
+      - "${ADMIN_ADDRESS}"
+      - "${ORACLE_ADDRESS}"
+
+  # ── Etherscan Verification ────────────────────────────────────────────────────
+  verification:
+    etherscan:
+      apiKey: "${ETHERSCAN_API_KEY}"
+
+  settings:
+    gasMultiplier: 1.2      # 20% gas safety buffer
+    confirmations: 2         # Wait 2 block confirmations per tx
+
+  # ── Deployment Reports ────────────────────────────────────────────────────────
+  reportDir: "./deployments"

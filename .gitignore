@@ -1,41 +1,60 @@
-# Node
+# ─── Node / npm ───────────────────────────────────────────────────────────────
 node_modules/
 dist/
 dist-tsc/
-coverage/
 
-# Next.js
-.next/
-out/
-build/
+# ─── Hardhat build outputs ─────────────────────────────────────────────────────
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+contracts/deployments/
+contracts/coverage/
+contracts/coverage.json
 
-# Foundry
+# ─── diamond-deployer-cli ──────────────────────────────────────────────────────
+diamond-deployment-report*.json
+deployments/
+
+# ─── Foundry (legacy, kept for reference) ──────────────────────────────────────
 out/
-cache/
 broadcast/
 
-# Logs
-logs
+# ─── Next.js / Frontend ────────────────────────────────────────────────────────
+.next/
+build/
+
+# ─── Environment files (NEVER commit secrets) ──────────────────────────────────
+.env
+.env.local
+.env.test
+.env.production
+.env.*.local
+# Keep the example template committed:
+!.env.example
+!contracts/.env.example
+
+# ─── Logs ──────────────────────────────────────────────────────────────────────
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
-# OS
+# ─── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
+Thumbs.db
 *.pem
 
-# Env
-.env
-.env.test
-.env.local
-
-# IDEs
+# ─── IDEs ──────────────────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# Misc
+# ─── Testing ───────────────────────────────────────────────────────────────────
+contracts/.nyc_output/
+
+# ─── Misc ──────────────────────────────────────────────────────────────────────
 .vercel
+*.tsbuildinfo
