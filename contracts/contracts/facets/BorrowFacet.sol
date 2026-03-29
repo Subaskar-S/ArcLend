@@ -11,6 +11,8 @@ import {IPriceOracle} from "../interfaces/IPriceOracle.sol";
 import {WadRayMath} from "../libraries/WadRayMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IAToken} from "../interfaces/IAToken.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /**
  * @title BorrowFacet
@@ -66,7 +68,11 @@ contract BorrowFacet {
         // Oracle prices are normalized to 18 decimal WAD by our PriceOracle.
         uint256 assetPrice = IPriceOracle(s.priceOracle).getAssetPrice(asset);
         require(assetPrice > 0, "BorrowFacet: zero oracle price");
-        uint256 amountInBaseCurrency = amount.wadMul(assetPrice);
+        
+        // Scale non-18 decimal assets up to 18 so base currency units are unified
+        uint8 decimals = IERC20Metadata(asset).decimals();
+        uint256 amountWad = amount * (10 ** (18 - decimals));
+        uint256 amountInBaseCurrency = amountWad.wadMul(assetPrice);
 
         ValidationLogic.validateBorrow(
             reserve,
@@ -78,6 +84,9 @@ contract BorrowFacet {
             s.reservesCount,
             s.priceOracle
         );
+
+        // Update rates BEFORE liquidity decreases (asset was lent out)
+        reserve.updateInterestRates(asset, 0, amount);
 
         // Mint debt tokens
         bool isFirstBorrow = IDebtToken(reserve.debtTokenAddress).mint(
@@ -91,11 +100,8 @@ contract BorrowFacet {
         }
 
         // ── [FIX-2b]: Actually send the borrowed asset to the borrower ───────
-        // Without this transfer, the function mints debt but gives nothing to borrower.
-        IERC20(asset).safeTransfer(onBehalfOf, amount);
-
-        // Update rates: liquidity decreases (asset was lent out)
-        reserve.updateInterestRates(asset, 0, amount);
+        // The funds are held by the aToken contract, so we instruct it to transfer to borrower
+        IAToken(reserve.aTokenAddress).transferUnderlyingTo(onBehalfOf, amount);
 
         emit Borrow(asset, msg.sender, onBehalfOf, amount, reserve.currentVariableBorrowRate);
     }
@@ -128,6 +134,13 @@ contract BorrowFacet {
             ? userDebt
             : amount;
 
+        if (paybackAmount >= userDebt) {
+            _setBorrowing(s.usersConfig[onBehalfOf], uint256(reserve.id), false);
+        }
+
+        // Update rates: liquidity increases (repayment received) BEFORE the transfer happens
+        reserve.updateInterestRates(asset, paybackAmount, 0);
+
         // ── [FIX-3]: Receive repayment FROM repayer BEFORE burning debt ──────
         // The aToken contract holds the liquidity pool — repayment goes there.
         IERC20(asset).safeTransferFrom(msg.sender, reserve.aTokenAddress, paybackAmount);
@@ -138,13 +151,6 @@ contract BorrowFacet {
             paybackAmount,
             reserve.variableBorrowIndex
         );
-
-        if (paybackAmount >= userDebt) {
-            _setBorrowing(s.usersConfig[onBehalfOf], uint256(reserve.id), false);
-        }
-
-        // Update rates: liquidity increases (repayment received)
-        reserve.updateInterestRates(asset, paybackAmount, 0);
 
         emit Repay(asset, onBehalfOf, msg.sender, paybackAmount);
         return paybackAmount;

@@ -8,7 +8,6 @@ import {LibDiamond} from "../libraries/LibDiamond.sol";
  * @notice Manages contract ownership (required by EIP-173).
  */
 contract OwnershipFacet {
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     function transferOwnership(address _newOwner) external {
         LibDiamond.enforceIsContractOwner();

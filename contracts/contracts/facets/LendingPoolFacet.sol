@@ -61,7 +61,8 @@ contract LendingPoolFacet {
 
         ValidationLogic.validateDeposit(reserve, amount);
 
-        reserve.updateState(asset);
+        // Update interest rates BEFORE deposit changes liquidity
+        reserve.updateInterestRates(asset, amount, 0);
 
         // ── [FIX-1]: Transfer tokens FROM depositor TO aToken contract ─────
         // The underlying asset must be held by the aToken contract so it can
@@ -78,9 +79,6 @@ contract LendingPoolFacet {
         if (isFirstDeposit) {
             _setUsingAsCollateral(s.usersConfig[onBehalfOf], uint256(reserve.id), true);
         }
-
-        // Update interest rates after deposit changes liquidity
-        reserve.updateInterestRates(asset, amount, 0);
 
         emit Deposit(asset, msg.sender, onBehalfOf, amount);
     }
@@ -120,6 +118,9 @@ contract LendingPoolFacet {
             s.priceOracle
         );
 
+        // Update interest rates BEFORE withdraw reduces liquidity
+        reserve.updateInterestRates(asset, 0, amountToWithdraw);
+
         // Burn aTokens — the aToken contract sends underlying to `to`
         IAToken(reserve.aTokenAddress).burn(
             msg.sender,
@@ -131,9 +132,6 @@ contract LendingPoolFacet {
         if (amountToWithdraw == userBalance) {
             _setUsingAsCollateral(s.usersConfig[msg.sender], uint256(reserve.id), false);
         }
-
-        // Update interest rates after withdraw reduces liquidity
-        reserve.updateInterestRates(asset, 0, amountToWithdraw);
 
         emit Withdraw(asset, msg.sender, to, amountToWithdraw);
         return amountToWithdraw;

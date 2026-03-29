@@ -10,7 +10,7 @@ import {
   ViewFacet,
   DiamondInit,
   Diamond,
-} from "../typechain-types";
+} from "../../typechain-types";
 
 export interface FacetCut {
   facetAddress: string;
@@ -32,10 +32,13 @@ export interface DeployedDiamond {
  * Get the 4-byte function selectors for a contract's ABI
  */
 export function getSelectors(contract: any): string[] {
-  const signatures = Object.keys(contract.interface.functions);
-  return signatures
-    .filter((sig) => sig !== "init(bytes)") // exclude init
-    .map((sig) => contract.interface.getSighash(sig));
+  const selectors: string[] = [];
+  contract.interface.forEachFunction((func: any) => {
+    if (func.name !== "init") {
+      selectors.push(func.selector);
+    }
+  });
+  return selectors;
 }
 
 /**
@@ -47,70 +50,71 @@ export async function deployDiamond(adminAddress: string, oracleAddress: string)
   // Deploy facets
   const DiamondCutFacetFactory = await ethers.getContractFactory("DiamondCutFacet");
   const diamondCutFacet = await DiamondCutFacetFactory.deploy();
-  await diamondCutFacet.deployed();
+  await diamondCutFacet.waitForDeployment();
 
   // Deploy Diamond proxy
   const DiamondFactory = await ethers.getContractFactory("Diamond");
-  const diamond = await DiamondFactory.deploy(adminAddress, diamondCutFacet.address);
-  await diamond.deployed();
+  const diamond = await DiamondFactory.deploy(adminAddress, diamondCutFacet.target);
+  await diamond.waitForDeployment();
 
   // Deploy remaining facets
   const DiamondLoupeFacetFactory = await ethers.getContractFactory("DiamondLoupeFacet");
   const diamondLoupeFacet = await DiamondLoupeFacetFactory.deploy();
-  await diamondLoupeFacet.deployed();
+  await diamondLoupeFacet.waitForDeployment();
 
   const OwnershipFacetFactory = await ethers.getContractFactory("OwnershipFacet");
   const ownershipFacet = await OwnershipFacetFactory.deploy();
-  await ownershipFacet.deployed();
+  await ownershipFacet.waitForDeployment();
 
   const LendingPoolFacetFactory = await ethers.getContractFactory("LendingPoolFacet");
   const lendingPoolFacet = await LendingPoolFacetFactory.deploy();
-  await lendingPoolFacet.deployed();
+  await lendingPoolFacet.waitForDeployment();
 
   const BorrowFacetFactory = await ethers.getContractFactory("BorrowFacet");
   const borrowFacet = await BorrowFacetFactory.deploy();
-  await borrowFacet.deployed();
+  await borrowFacet.waitForDeployment();
 
   const LiquidationFacetFactory = await ethers.getContractFactory("LiquidationFacet");
   const liquidationFacet = await LiquidationFacetFactory.deploy();
-  await liquidationFacet.deployed();
+  await liquidationFacet.waitForDeployment();
 
   const ConfiguratorFacetFactory = await ethers.getContractFactory("ConfiguratorFacet");
   const configuratorFacet = await ConfiguratorFacetFactory.deploy();
-  await configuratorFacet.deployed();
+  await configuratorFacet.waitForDeployment();
 
   const ViewFacetFactory = await ethers.getContractFactory("ViewFacet");
   const viewFacet = await ViewFacetFactory.deploy();
-  await viewFacet.deployed();
+  await viewFacet.waitForDeployment();
 
   const DiamondInitFactory = await ethers.getContractFactory("DiamondInit");
   const diamondInit = await DiamondInitFactory.deploy();
-  await diamondInit.deployed();
+  await diamondInit.waitForDeployment();
 
   // Build the cut
   const cut: FacetCut[] = [
-    { facetAddress: diamondLoupeFacet.address, action: 0, functionSelectors: getSelectors(diamondLoupeFacet) },
-    { facetAddress: ownershipFacet.address, action: 0, functionSelectors: getSelectors(ownershipFacet) },
-    { facetAddress: lendingPoolFacet.address, action: 0, functionSelectors: getSelectors(lendingPoolFacet) },
-    { facetAddress: borrowFacet.address, action: 0, functionSelectors: getSelectors(borrowFacet) },
-    { facetAddress: liquidationFacet.address, action: 0, functionSelectors: getSelectors(liquidationFacet) },
-    { facetAddress: configuratorFacet.address, action: 0, functionSelectors: getSelectors(configuratorFacet) },
-    { facetAddress: viewFacet.address, action: 0, functionSelectors: getSelectors(viewFacet) },
+    { facetAddress: await diamondLoupeFacet.getAddress(), action: 0, functionSelectors: getSelectors(diamondLoupeFacet) },
+    { facetAddress: await ownershipFacet.getAddress(), action: 0, functionSelectors: getSelectors(ownershipFacet) },
+    { facetAddress: await lendingPoolFacet.getAddress(), action: 0, functionSelectors: getSelectors(lendingPoolFacet) },
+    { facetAddress: await borrowFacet.getAddress(), action: 0, functionSelectors: getSelectors(borrowFacet) },
+    { facetAddress: await liquidationFacet.getAddress(), action: 0, functionSelectors: getSelectors(liquidationFacet) },
+    { facetAddress: await configuratorFacet.getAddress(), action: 0, functionSelectors: getSelectors(configuratorFacet) },
+    { facetAddress: await viewFacet.getAddress(), action: 0, functionSelectors: getSelectors(viewFacet) },
   ];
 
   // Execute the diamond cut with init
-  const diamondCut = (await ethers.getContractAt("DiamondCutFacet", diamond.address)) as DiamondCutFacet;
+  const diamondInstanceAddress = await diamond.getAddress();
+  const diamondCut = (await ethers.getContractAt("DiamondCutFacet", diamondInstanceAddress)) as unknown as DiamondCutFacet;
   const initCalldata = diamondInit.interface.encodeFunctionData("init", [adminAddress, oracleAddress]);
-  const tx = await diamondCut.diamondCut(cut, diamondInit.address, initCalldata);
+  const tx = await diamondCut.diamondCut(cut, await diamondInit.getAddress(), initCalldata);
   await tx.wait();
 
   return {
-    diamond,
-    lendingPool: (await ethers.getContractAt("LendingPoolFacet", diamond.address)) as LendingPoolFacet,
-    borrow: (await ethers.getContractAt("BorrowFacet", diamond.address)) as BorrowFacet,
-    liquidation: (await ethers.getContractAt("LiquidationFacet", diamond.address)) as LiquidationFacet,
-    configurator: (await ethers.getContractAt("ConfiguratorFacet", diamond.address)) as ConfiguratorFacet,
-    view: (await ethers.getContractAt("ViewFacet", diamond.address)) as ViewFacet,
+    diamond: diamond as unknown as Diamond,
+    lendingPool: (await ethers.getContractAt("LendingPoolFacet", diamondInstanceAddress)) as unknown as LendingPoolFacet,
+    borrow: (await ethers.getContractAt("BorrowFacet", diamondInstanceAddress)) as unknown as BorrowFacet,
+    liquidation: (await ethers.getContractAt("LiquidationFacet", diamondInstanceAddress)) as unknown as LiquidationFacet,
+    configurator: (await ethers.getContractAt("ConfiguratorFacet", diamondInstanceAddress)) as unknown as ConfiguratorFacet,
+    view: (await ethers.getContractAt("ViewFacet", diamondInstanceAddress)) as unknown as ViewFacet,
     owner: diamondCut,
   };
 }

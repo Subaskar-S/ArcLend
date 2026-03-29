@@ -7,6 +7,7 @@ import {PercentageMath} from "./PercentageMath.sol";
 import {IPriceOracle} from "../interfaces/IPriceOracle.sol";
 import {IDebtToken} from "../interfaces/IDebtToken.sol";
 import {ReserveLogic} from "./ReserveLogic.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /**
  * @title GenericLogic
@@ -106,11 +107,19 @@ library GenericLogic {
             uint256 normalizedIncome = reserve.getNormalizedIncome();
             uint256 normalizedDebt = reserve.getNormalizedDebt();
 
+            // [FIX-13]: Scale tokens with < 18 decimals up to WAD (18) before price multiply.
+            // Failing to do so undervalues e.g. USDC (6 decimals) by 10^12 vs WETH (18).
+            uint8 decimals = IERC20Metadata(reserveAddress).decimals();
+            uint256 decimalScaler = 10 ** (18 - decimals);
+
             // Count collateral contributions
             if (_isUsingAsCollateral(userConfig, i) && reserve.liquidationThreshold > 0) {
                 uint256 userATokenBalance = _getScaledBalanceOf(reserve.aTokenAddress, user);
                 uint256 actualBalance = userATokenBalance.rayMul(normalizedIncome);
-                uint256 collateralValue = actualBalance.wadMul(assetPrice);
+                
+                // Scale balance to 18 decimals, then multiply by 18-decimal price, then wadMul scales back down to 18
+                uint256 actualBalanceWad = actualBalance * decimalScaler;
+                uint256 collateralValue = actualBalanceWad.wadMul(assetPrice);
 
                 totalCollateralBase += collateralValue;
                 currentLiquidationThreshold += collateralValue.percentMul(reserve.liquidationThreshold);
@@ -120,7 +129,9 @@ library GenericLogic {
             if (_isBorrowing(userConfig, i)) {
                 uint256 userDebtBalance = _getScaledDebtOf(reserve.debtTokenAddress, user);
                 uint256 actualDebt = userDebtBalance.rayMul(normalizedDebt);
-                totalDebtBase += actualDebt.wadMul(assetPrice);
+                
+                uint256 actualDebtWad = actualDebt * decimalScaler;
+                totalDebtBase += actualDebtWad.wadMul(assetPrice);
             }
         }
     }
