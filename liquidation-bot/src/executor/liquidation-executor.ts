@@ -65,8 +65,8 @@ export class LiquidationExecutor {
     }
 
     private async acquireLock(key: string, ttlMs: number): Promise<boolean> {
-        // SET key value NX PX ttl
-        const res = await this.redis.set(key, "LOCKED", "NX", "PX", ttlMs);
+        // ioredis v5 SET signature: key, value, "PX", ttlMs, "NX"
+        const res = await this.redis.set(key, "LOCKED", "PX", ttlMs, "NX");
         return res === "OK";
     }
 }

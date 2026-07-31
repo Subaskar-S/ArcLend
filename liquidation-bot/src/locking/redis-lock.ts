@@ -16,7 +16,8 @@ export class RedisLockService {
     async acquire(resource: string, ttlMs: number = 30000): Promise<boolean> {
         const key = `lock:${resource}`;
         // NX = Only set if not exists, PX = Milliseconds TTL
-        const res = await this.redis.set(key, "LOCKED", "NX", "PX", ttlMs);
+        // ioredis v5 SET signature: key, value, "PX", ttlMs, "NX"
+        const res = await this.redis.set(key, "LOCKED", "PX", ttlMs, "NX");
         return res === "OK";
     }
 
