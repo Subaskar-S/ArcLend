@@ -1,15 +1,16 @@
-import { IsString, IsNotEmpty, IsNumberString, IsDateString, Length, Matches } from 'class-validator';
+import { IsUUID, IsNotEmpty, IsNumberString, IsDateString } from 'class-validator';
 
 export class CreatePriceDto {
-  @IsString()
-  @Length(42, 42)
-  @Matches(/^0x[a-fA-F0-9]{40}$/, { message: 'Must be a valid Ethereum address' })
-  assetAddress: string;
+    /** UUID of the market (from the markets table) */
+    @IsUUID()
+    @IsNotEmpty()
+    marketId: string;
 
-  @IsDateString()
-  timestamp: string;
+    @IsDateString()
+    timestamp: string;
 
-  @IsNumberString()
-  @IsNotEmpty()
-  price: string;
+    /** Price in WAD (1e18), denominated in base currency */
+    @IsNumberString()
+    @IsNotEmpty()
+    price: string;
 }
