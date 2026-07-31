@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "Production-grade DeFi lending backend",
   "private": true,
+  "packageManager": "pnpm@11.18.0",
   "scripts": {
     "build": "nest build",
     "start": "nest start",

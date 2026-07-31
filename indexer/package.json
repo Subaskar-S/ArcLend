@@ -3,9 +3,11 @@
   "version": "0.0.1",
   "description": "Production-grade blockchain event indexer",
   "private": true,
+  "packageManager": "pnpm@11.18.0",
   "scripts": {
     "build": "tsc",
     "start": "ts-node src/main.ts",
+    "typecheck": "tsc --noEmit",
     "test": "jest"
   },
   "dependencies": {

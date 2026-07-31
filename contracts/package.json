@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "ArcLend DeFi Protocol — Smart Contracts (Diamond EIP-2535)",
   "private": true,
+  "packageManager": "pnpm@11.18.0",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",

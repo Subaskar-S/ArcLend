@@ -1,0 +1,13 @@
+packages:
+  - 'contracts'
+  - 'backend'
+  - 'indexer'
+  - 'liquidation-bot'
+
+# pnpm 11: allowBuilds replaces onlyBuiltDependencies.
+# These are well-known packages that require native postinstall build scripts.
+allowBuilds:
+  '@nestjs/core': false
+  'keccak': false
+  'msgpackr-extract': false
+  'secp256k1': false

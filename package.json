@@ -1,0 +1,21 @@
+{
+  "name": "arclend",
+  "version": "0.0.1",
+  "description": "ArcLend DeFi Lending Protocol — monorepo root",
+  "private": true,
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=11.0.0"
+  },
+  "scripts": {
+    "build:contracts": "pnpm --filter @arclend/contracts compile",
+    "test:contracts": "pnpm --filter @arclend/contracts test",
+    "build:backend": "pnpm --filter aave-lending-backend build",
+    "test:backend": "pnpm --filter aave-lending-backend test",
+    "build:indexer": "pnpm --filter aave-lending-indexer build",
+    "build:bot": "pnpm --filter aave-lending-liquidator build",
+    "test:all": "pnpm -r test",
+    "typecheck:all": "pnpm -r --if-present typecheck"
+  }
+}
