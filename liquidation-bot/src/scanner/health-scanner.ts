@@ -1,32 +1,42 @@
-import { Pool } from "pg";
+import { Pool } from 'pg';
+import { UnhealthyUser } from '../types';
+
+const WAD = 1_000_000_000_000_000_000n; // 1e18
 
 export class HealthScanner {
-    private db: Pool;
-
-    constructor(dbConnection: Pool) {
-        this.db = dbConnection;
-    }
+    constructor(private readonly db: Pool) {}
 
     /**
-     * @notice Scans user positions for health factor < 1.0 (1e18)
-     * @returns Array of user IDs and their details
+     * Returns users whose cached health_factor < 1.0 WAD.
+     * Results are ordered by health_factor ASC (most critical first).
+     *
+     * Relies on the partial index:
+     *   idx_user_positions_health ON user_positions(health_factor)
+     *   WHERE health_factor < 1000000000000000000
      */
-    async scanUnhealthyPositions(batchSize: number = 50): Promise<any[]> {
-        // Query: JOIN users if we need wallet address
-        const query = `
-            SELECT 
+    async scanUnhealthyPositions(batchSize = 50): Promise<UnhealthyUser[]> {
+        const res = await this.db.query<{
+            user_id: string;
+            user_address: string;
+            health_factor: string;
+        }>(
+            `SELECT DISTINCT ON (up.user_id)
                 up.user_id,
-                u.address as user_address,
-                up.market_id,
+                u.address   AS user_address,
                 up.health_factor
-            FROM user_positions up
-            JOIN users u ON up.user_id = u.id
-            WHERE up.health_factor < 1000000000000000000 -- 1e18
-            AND up.health_factor > 0 -- 0 often means empty position, depending on logic
-            LIMIT $1
-        `;
-        
-        const res = await this.db.query(query, [batchSize]);
-        return res.rows;
+             FROM user_positions up
+             JOIN users u ON u.id = up.user_id
+             WHERE up.health_factor < $1
+               AND up.health_factor > 0
+             ORDER BY up.user_id, up.health_factor ASC
+             LIMIT $2`,
+            [WAD.toString(), batchSize],
+        );
+
+        return res.rows.map(r => ({
+            userId: r.user_id,
+            userAddress: r.user_address,
+            healthFactor: r.health_factor,
+        }));
     }
 }

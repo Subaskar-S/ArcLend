@@ -1,57 +1,105 @@
-import { Pool } from "pg";
-import * as dotenv from "dotenv";
-import { HealthScanner } from "./scanner/health-scanner";
-import { LiquidationExecutor } from "./executor/liquidation-executor";
+import * as dotenv from 'dotenv';
+import { Pool } from 'pg';
+import { HealthScanner } from './scanner/health-scanner';
+import { BestPairSelector } from './scanner/best-pair.selector';
+import { LiquidationExecutor } from './executor/liquidation-executor';
 
 dotenv.config();
 
-async function main() {
-    // DB setup
+const SCAN_INTERVAL_MS = 5_000;
+const BATCH_SIZE = 50;
+
+async function main(): Promise<void> {
+    // ── Validate required env vars ────────────────────────────────────────────
+    const privateKey = process.env.PRIVATE_KEY;
+    const lendingPoolAddress = process.env.LENDING_POOL_ADDRESS;
+
+    if (!privateKey) {
+        console.error('[main] PRIVATE_KEY env var is required');
+        process.exit(1);
+    }
+    if (!lendingPoolAddress) {
+        console.error('[main] LENDING_POOL_ADDRESS env var is required');
+        process.exit(1);
+    }
+
+    // ── DB connection ─────────────────────────────────────────────────────────
     const db = new Pool({
-        host: process.env.DB_HOST || "localhost",
-        port: parseInt(process.env.DB_PORT || "5432"),
-        user: process.env.DB_USER || "postgres",
-        password: process.env.DB_PASSWORD || "postgres",
-        database: process.env.DB_NAME || "aave_lending",
+        host: process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT || '5432', 10),
+        user: process.env.DB_USER || 'postgres',
+        password: process.env.DB_PASSWORD || 'postgres',
+        database: process.env.DB_NAME || 'aave_lending',
     });
 
-    // Executor setup
-    const executor = new LiquidationExecutor(
-        process.env.REDIS_URL || "redis://localhost:6379",
-        process.env.RPC_URL || "http://localhost:8545",
-        process.env.PRIVATE_KEY || "", // Liquidator wallet key
-        process.env.LENDING_POOL_ADDRESS || ""
-    );
+    const rpcUrl = process.env.RPC_URL || 'http://localhost:8545';
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
+    // ── Service wiring ────────────────────────────────────────────────────────
     const scanner = new HealthScanner(db);
+    const pairSelector = new BestPairSelector(db);
+    const executor = new LiquidationExecutor(redisUrl, rpcUrl, privateKey, lendingPoolAddress);
 
-    console.log("Starting Liquidation Bot...");
+    // ── Graceful shutdown ─────────────────────────────────────────────────────
+    let running = true;
 
-    // Main Loop
-    while (true) {
+    const shutdown = async () => {
+        console.log('[main] Shutting down...');
+        running = false;
+        await db.end();
+        process.exit(0);
+    };
+
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+
+    // ── Main loop ─────────────────────────────────────────────────────────────
+    console.log('[main] Liquidation bot started');
+    console.log(`[main]   pool address: ${lendingPoolAddress}`);
+    console.log(`[main]   scan interval: ${SCAN_INTERVAL_MS}ms`);
+
+    while (running) {
         try {
-            const unhealthyUsers = await scanner.scanUnhealthyPositions(50);
-            
-            if (unhealthyUsers.length > 0) {
-                console.log(`Found ${unhealthyUsers.length} unhealthy positions.`);
-                
-                // Process in parallel
-                await Promise.all(unhealthyUsers.map(async (user) => {
-                    // Logic to determine WHICH debt/collateral to liquidate
-                    // For now, assuming we query contract or DB to find max debt/collateral
-                    // Simplified: pass placeholder or fetch details
-                    
-                    // In a real bot, we'd need to fetch the best pair.
-                    // await executor.liquidate(user.user_address, ...);
-                    console.log(`Would liquidate user ${user.user_address}`);
-                }));
+            const unhealthyUsers = await scanner.scanUnhealthyPositions(BATCH_SIZE);
+
+            if (unhealthyUsers.length === 0) {
+                console.log('[main] No unhealthy positions found');
+            } else {
+                console.log(`[main] Found ${unhealthyUsers.length} unhealthy position(s)`);
+
+                // Process each user sequentially to avoid nonce conflicts on the wallet
+                for (const user of unhealthyUsers) {
+                    if (!running) break;
+
+                    console.log(
+                        `[main] Processing ${user.userAddress} — HF: ${user.healthFactor}`,
+                    );
+
+                    // Select the best debt/collateral pair for this user
+                    const pair = await pairSelector.selectPair(user.userAddress);
+
+                    if (!pair) {
+                        console.warn(
+                            `[main] No valid liquidation pair found for ${user.userAddress} — skipping`,
+                        );
+                        continue;
+                    }
+
+                    // Execute — errors are caught inside the executor, never throws here
+                    await executor.liquidate(
+                        pair.userAddress,
+                        pair.debtAsset,
+                        pair.collateralAsset,
+                        pair.debtToCover,
+                    );
+                }
             }
         } catch (error) {
-            console.error("Error in scan loop:", error);
+            console.error('[main] Scan loop error:', error);
         }
 
-        // Sleep 5 seconds
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // Wait before next scan cycle
+        await new Promise(resolve => setTimeout(resolve, SCAN_INTERVAL_MS));
     }
 }
 
