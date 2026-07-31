@@ -1,33 +1,31 @@
-import { Pool } from "pg";
 import * as dotenv from "dotenv";
+import { dbPool } from "./database/db";
 import { BlockWatcher } from "./sync/block-watcher";
 
 dotenv.config();
 
-async function main() {
-    const db = new Pool({
-        host: process.env.DB_HOST || "localhost",
-        port: parseInt(process.env.DB_PORT || "5432"),
-        user: process.env.DB_USER || "postgres",
-        password: process.env.DB_PASSWORD || "postgres",
-        database: process.env.DB_NAME || "arc_lending",
-    });
-
+async function main(): Promise<void> {
     const rpcUrl = process.env.RPC_URL || "http://localhost:8545";
 
-    const watcher = new BlockWatcher(rpcUrl, db);
+    const watcher = new BlockWatcher(rpcUrl, dbPool);
 
-    // Handle graceful shutdown
     process.on("SIGINT", async () => {
-        console.log("Shutting down...");
-        await db.end();
+        console.log("[main] Shutting down...");
+        await dbPool.end();
+        process.exit(0);
+    });
+
+    process.on("SIGTERM", async () => {
+        console.log("[main] SIGTERM received. Shutting down...");
+        await dbPool.end();
         process.exit(0);
     });
 
     try {
         await watcher.start();
     } catch (error) {
-        console.error("Fatal error:", error);
+        console.error("[main] Fatal error:", error);
+        await dbPool.end();
         process.exit(1);
     }
 }

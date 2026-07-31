@@ -1,30 +1,42 @@
 import { ethers } from "ethers";
 import { Pool } from "pg";
+import { EventProcessor } from "../processors/event-processor";
+import { DIAMOND_ADDRESS } from "../config";
 
 export class BlockWatcher {
-    private provider: ethers.JsonRpcProvider;
-    private db: Pool;
+    private readonly provider: ethers.JsonRpcProvider;
+    private readonly db: Pool;
+    private eventProcessor: EventProcessor;
+    private chainId: number | null = null;
     private isSyncing = false;
 
     constructor(rpcUrl: string, dbConnection: Pool) {
         this.provider = new ethers.JsonRpcProvider(rpcUrl);
         this.db = dbConnection;
+        // chainId is resolved lazily on first use; EventProcessor is re-created in start()
+        this.eventProcessor = new EventProcessor(0);
     }
 
-    async start() {
-        console.log("Starting BlockWatcher...");
-        
-        // Initial catch-up
+    async start(): Promise<void> {
+        // Resolve chain ID once at startup, then rebuild EventProcessor with real chainId
+        const resolvedChainId = await this.getChainId();
+        this.eventProcessor = new EventProcessor(resolvedChainId);
+
+        console.log(`[BlockWatcher] Starting on chainId=${resolvedChainId}, Diamond=${DIAMOND_ADDRESS || "ALL"}`);
+
+        // Initial catch-up from last processed block to current head
         await this.processBlocks();
 
-        // Listen for new blocks
-        this.provider.on("block", async (blockNumber) => {
-            console.log(`New block detected: ${blockNumber}`);
+        // Subscribe to new blocks for live indexing
+        this.provider.on("block", async (blockNumber: number) => {
+            console.log(`[BlockWatcher] New block: ${blockNumber}`);
             await this.processBlocks();
         });
     }
 
-    private async processBlocks() {
+    // ─── Main sync loop ───────────────────────────────────────────────────
+
+    private async processBlocks(): Promise<void> {
         if (this.isSyncing) return;
         this.isSyncing = true;
 
@@ -34,130 +46,210 @@ export class BlockWatcher {
 
             while (lastProcessedBlock < currentBlock) {
                 const nextBlockNum = lastProcessedBlock + 1;
-                const block = await this.provider.getBlock(nextBlockNum, true); // true = include transactions
+                const block = await this.provider.getBlock(nextBlockNum);
 
                 if (!block) {
-                    console.warn(`Block ${nextBlockNum} not found, retrying...`);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    console.warn(`[BlockWatcher] Block ${nextBlockNum} not found — retrying in 1s`);
+                    await this.sleep(1000);
                     continue;
                 }
 
-                // Check for reorg
                 const isReorg = await this.detectReorg(block);
                 if (isReorg) {
                     await this.handleReorg(block);
-                    // Reset lastProcessedBlock after reorg handling
+                    // Reset cursor after rollback and re-evaluate from the new tip
                     lastProcessedBlock = await this.getLastProcessedBlock();
                     continue;
                 }
 
-                // Process block
                 await this.processBlock(block);
-
                 lastProcessedBlock = nextBlockNum;
             }
         } catch (error) {
-            console.error("Error in block processing loop:", error);
+            console.error("[BlockWatcher] Error in sync loop:", error);
         } finally {
             this.isSyncing = false;
         }
     }
 
-    private async getLastProcessedBlock(): Promise<number> {
-        const res = await this.db.query("SELECT last_processed_block FROM block_sync_state WHERE chain_id = $1", [await this.getChainId()]);
-        if (res.rows.length === 0) {
-            // Initialize if not exists
-            const startBlock = parseInt(process.env.START_BLOCK || "0");
-            await this.db.query(
-                "INSERT INTO block_sync_state (chain_id, last_processed_block, last_processed_hash) VALUES ($1, $2, $3)",
-                [await this.getChainId(), startBlock - 1, ethers.ZeroHash]
-            );
-            return startBlock - 1;
-        }
-        return res.rows[0].last_processed_block;
-    }
+    // ─── Per-block processing ─────────────────────────────────────────────
 
-    private async getChainId(): Promise<number> {
-        const network = await this.provider.getNetwork();
-        return Number(network.chainId);
-    }
-
-    private async detectReorg(block: ethers.Block): Promise<boolean> {
-        const res = await this.db.query("SELECT last_processed_hash FROM block_sync_state WHERE chain_id = $1", [await this.getChainId()]);
-        if (res.rows.length === 0) return false;
-        
-        const lastHash = res.rows[0].last_processed_hash;
-        
-        // If last hash is ZeroHash (genesis/init), no reorg
-        if (lastHash === ethers.ZeroHash) return false;
-
-        // If parent hash doesn't match our stored last hash, it's a reorg
-        return block.parentHash !== lastHash;
-    }
-
-    private async handleReorg(block: ethers.Block) {
-        console.warn(`REORG DETECTED at block ${block.number}. Rolling back...`);
-        
-        // Simple rollback: delete raw_events and update sync state to parent of the conflicting block?
-        // No, we need to find common ancestor. 
-        // For simplicity in Phase 3 MVP: rollback 1 block and retry.
-        // We delete everything from current_head downwards.
-        
-        // Actually, if block.parentHash != last_db_hash, then last_db_hash is invalid (orphaned).
-        // We need to roll back the DB state to block.parentHash? 
-        // No, we don't have block.parentHash in DB necessarily if deep reorg.
-        
-        // Strategy: Rollback one block in DB.
+    private async processBlock(block: ethers.Block): Promise<void> {
         const chainId = await this.getChainId();
-        const res = await this.db.query("SELECT last_processed_block FROM block_sync_state WHERE chain_id = $1", [chainId]);
-        const currentDbBlock = res.rows[0].last_processed_block;
-
-        // Delete events for the orphaned block
-        await this.db.query("DELETE FROM raw_events WHERE params ->> 'blockNumber' = $1 AND chain_id = $2", [currentDbBlock, chainId]); // Wait, simple delete?
-        // Also need to revert derived state? 
-        // This suggests we need a strictly event-sourced system or rollback log.
-        // For "Production-grade", we usually have `reorg_safe_depth`.
-        
-        // Implemented: Decrement last_processed_block.
-        // We set last_processed_hash to... we don't know it easily without querying DB history or ETH node. 
-        
-        // PROPER FIX: unique constraint on (block_number, chain_id) in block_headers table?
-        // We only have block_sync_state.
-        
-        // Quick Fix: Move last_processed_block back by 1. Next loop will re-fetch that block and check IT's parent.
-        await this.db.query(
-             "UPDATE block_sync_state SET last_processed_block = last_processed_block - 1, last_processed_hash = 'UNKNOWN' WHERE chain_id = $1",
-             [chainId]
-        );
-        
-        // In next iteration, detectReorg calls `detectReorg(block-1)`. 
-        // If `last_processed_hash` is 'UNKNOWN', we might need to fetch it from provider or assume safe?
-        // We need updates.
-    }
-
-    private async processBlock(block: ethers.Block) {
         const client = await this.db.connect();
+
         try {
             await client.query("BEGIN");
 
-            // Fetch logs
-            // TODO: Filter only for our contracts
-            // const logs = await this.provider.getLogs({ ... });
-            // For now, assume we process whole block logs or specific filter.
-            
-            // Update sync state
+            // Fetch logs for the Diamond contract only (or all logs if address not configured)
+            const filter: ethers.Filter = {
+                fromBlock: block.number,
+                toBlock: block.number,
+                ...(DIAMOND_ADDRESS ? { address: DIAMOND_ADDRESS } : {}),
+            };
+
+            const logs = await this.provider.getLogs(filter);
+
+            for (const log of logs) {
+                await this.eventProcessor.processLog(log, block, client);
+            }
+
+            // Advance the sync cursor inside the same transaction
             await client.query(
-                "UPDATE block_sync_state SET last_processed_block = $1, last_processed_hash = $2 WHERE chain_id = $3",
-                [block.number, block.hash, await this.getChainId()]
+                `UPDATE block_sync_state
+                 SET last_processed_block = $1, last_processed_hash = $2, updated_at = NOW()
+                 WHERE chain_id = $3`,
+                [block.number, block.hash, chainId],
             );
 
             await client.query("COMMIT");
-            console.log(`Processed block ${block.number}`);
+
+            if (logs.length > 0) {
+                console.log(`[BlockWatcher] Block ${block.number}: processed ${logs.length} event(s)`);
+            }
         } catch (e) {
             await client.query("ROLLBACK");
             throw e;
         } finally {
             client.release();
         }
+    }
+
+    // ─── Reorg handling ───────────────────────────────────────────────────
+
+    private async detectReorg(block: ethers.Block): Promise<boolean> {
+        const chainId = await this.getChainId();
+        const res = await this.db.query<{ last_processed_hash: string }>(
+            "SELECT last_processed_hash FROM block_sync_state WHERE chain_id = $1",
+            [chainId],
+        );
+
+        if (res.rows.length === 0) return false;
+
+        const lastHash = res.rows[0].last_processed_hash;
+
+        // ZeroHash means we haven't processed any block yet — no reorg possible
+        if (lastHash === ethers.ZeroHash || lastHash === "") return false;
+
+        // If this block's parentHash doesn't match what we last stored, the chain forked
+        return block.parentHash !== lastHash;
+    }
+
+    private async handleReorg(block: ethers.Block): Promise<void> {
+        const chainId = await this.getChainId();
+
+        console.warn(
+            `[BlockWatcher] REORG detected at block ${block.number} on chain ${chainId}. Rolling back...`,
+        );
+
+        // Determine the last safe block (one before the divergence)
+        const res = await this.db.query<{ last_processed_block: number }>(
+            "SELECT last_processed_block FROM block_sync_state WHERE chain_id = $1",
+            [chainId],
+        );
+
+        const currentDbBlock: number = res.rows[0]?.last_processed_block ?? -1;
+        const rollbackToBlock = currentDbBlock - 1;
+
+        // Fetch the real hash of the rollback target from the provider
+        const safeBlock = rollbackToBlock >= 0
+            ? await this.provider.getBlock(rollbackToBlock)
+            : null;
+
+        const safeHash = safeBlock?.hash ?? ethers.ZeroHash;
+
+        const client = await this.db.connect();
+        try {
+            await client.query("BEGIN");
+
+            // Roll back derived tables — delete everything from the orphaned block onwards
+            await client.query(
+                `DELETE FROM deposits
+                 WHERE tx_hash IN (
+                     SELECT tx_hash FROM raw_events
+                     WHERE block_number > $1 AND chain_id = $2
+                 )`,
+                [rollbackToBlock, chainId],
+            );
+
+            await client.query(
+                `DELETE FROM borrows
+                 WHERE tx_hash IN (
+                     SELECT tx_hash FROM raw_events
+                     WHERE block_number > $1 AND chain_id = $2
+                 )`,
+                [rollbackToBlock, chainId],
+            );
+
+            await client.query(
+                `DELETE FROM liquidations
+                 WHERE tx_hash IN (
+                     SELECT tx_hash FROM raw_events
+                     WHERE block_number > $1 AND chain_id = $2
+                 )`,
+                [rollbackToBlock, chainId],
+            );
+
+            // Roll back raw events
+            await client.query(
+                "DELETE FROM raw_events WHERE block_number > $1 AND chain_id = $2",
+                [rollbackToBlock, chainId],
+            );
+
+            // Reset sync cursor to the last safe block
+            await client.query(
+                `UPDATE block_sync_state
+                 SET last_processed_block = $1, last_processed_hash = $2, updated_at = NOW()
+                 WHERE chain_id = $3`,
+                [rollbackToBlock, safeHash, chainId],
+            );
+
+            await client.query("COMMIT");
+
+            console.warn(
+                `[BlockWatcher] Rolled back to block ${rollbackToBlock} (hash: ${safeHash})`,
+            );
+        } catch (e) {
+            await client.query("ROLLBACK");
+            throw e;
+        } finally {
+            client.release();
+        }
+    }
+
+    // ─── Sync state helpers ───────────────────────────────────────────────
+
+    private async getLastProcessedBlock(): Promise<number> {
+        const chainId = await this.getChainId();
+        const res = await this.db.query<{ last_processed_block: number }>(
+            "SELECT last_processed_block FROM block_sync_state WHERE chain_id = $1",
+            [chainId],
+        );
+
+        if (res.rows.length === 0) {
+            const startBlock = parseInt(process.env.START_BLOCK || "0", 10);
+            await this.db.query(
+                `INSERT INTO block_sync_state (chain_id, last_processed_block, last_processed_hash)
+                 VALUES ($1, $2, $3)`,
+                [chainId, startBlock - 1, ethers.ZeroHash],
+            );
+            return startBlock - 1;
+        }
+
+        return res.rows[0].last_processed_block;
+    }
+
+    private async getChainId(): Promise<number> {
+        if (this.chainId === null) {
+            const network = await this.provider.getNetwork();
+            this.chainId = Number(network.chainId);
+        }
+        return this.chainId;
+    }
+
+    // ─── Utilities ────────────────────────────────────────────────────────
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
