@@ -2,6 +2,9 @@ import { ethers } from "ethers";
 import { PoolClient } from "pg";
 import { upsertUser, resolveUserId, resolveMarketId } from "./helpers";
 import { updateHealthFactor } from "../health-factor-updater";
+import { createLogger } from "../../logger";
+
+const logger = createLogger("deposit-handler");
 
 /**
  * Handles the Deposit event emitted by LendingPoolFacet.
@@ -36,7 +39,7 @@ export async function handleDeposit(
     const marketId = await resolveMarketId(reserve, client);
 
     if (!marketId) {
-        console.warn(`[handleDeposit] Unknown market for asset ${reserve} — tx ${log.transactionHash}. Skipping.`);
+        logger.warn(`Unknown market for asset ${reserve} — tx ${log.transactionHash}. Skipping.`);
         return;
     }
 

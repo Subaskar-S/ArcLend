@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { HealthScanner } from './scanner/health-scanner';
 import { BestPairSelector } from './scanner/best-pair.selector';
 import { LiquidationExecutor } from './executor/liquidation-executor';
+import { logger } from './logger';
 
 dotenv.config();
 
@@ -15,11 +16,11 @@ async function main(): Promise<void> {
     const lendingPoolAddress = process.env.LENDING_POOL_ADDRESS;
 
     if (!privateKey) {
-        console.error('[main] PRIVATE_KEY env var is required');
+        logger.error('PRIVATE_KEY env var is required');
         process.exit(1);
     }
     if (!lendingPoolAddress) {
-        console.error('[main] LENDING_POOL_ADDRESS env var is required');
+        logger.error('LENDING_POOL_ADDRESS env var is required');
         process.exit(1);
     }
 
@@ -44,7 +45,7 @@ async function main(): Promise<void> {
     let running = true;
 
     const shutdown = async () => {
-        console.log('[main] Shutting down...');
+        logger.info('Shutting down...');
         running = false;
         await db.end();
         process.exit(0);
@@ -54,34 +55,30 @@ async function main(): Promise<void> {
     process.on('SIGTERM', shutdown);
 
     // ── Main loop ─────────────────────────────────────────────────────────────
-    console.log('[main] Liquidation bot started');
-    console.log(`[main]   pool address: ${lendingPoolAddress}`);
-    console.log(`[main]   scan interval: ${SCAN_INTERVAL_MS}ms`);
+    logger.info('Liquidation bot started');
+    logger.info(`Pool address: ${lendingPoolAddress}`);
+    logger.info(`Scan interval: ${SCAN_INTERVAL_MS}ms`);
 
     while (running) {
         try {
             const unhealthyUsers = await scanner.scanUnhealthyPositions(BATCH_SIZE);
 
             if (unhealthyUsers.length === 0) {
-                console.log('[main] No unhealthy positions found');
+                logger.debug('No unhealthy positions found');
             } else {
-                console.log(`[main] Found ${unhealthyUsers.length} unhealthy position(s)`);
+                logger.info(`Found ${unhealthyUsers.length} unhealthy position(s)`);
 
                 // Process each user sequentially to avoid nonce conflicts on the wallet
                 for (const user of unhealthyUsers) {
                     if (!running) break;
 
-                    console.log(
-                        `[main] Processing ${user.userAddress} — HF: ${user.healthFactor}`,
-                    );
+                    logger.info(`Processing ${user.userAddress} — HF: ${user.healthFactor}`);
 
                     // Select the best debt/collateral pair for this user
                     const pair = await pairSelector.selectPair(user.userAddress);
 
                     if (!pair) {
-                        console.warn(
-                            `[main] No valid liquidation pair found for ${user.userAddress} — skipping`,
-                        );
+                        logger.warn(`No valid liquidation pair found for ${user.userAddress} — skipping`);
                         continue;
                     }
 
@@ -95,7 +92,7 @@ async function main(): Promise<void> {
                 }
             }
         } catch (error) {
-            console.error('[main] Scan loop error:', error);
+            logger.error('Scan loop error', { error });
         }
 
         // Wait before next scan cycle

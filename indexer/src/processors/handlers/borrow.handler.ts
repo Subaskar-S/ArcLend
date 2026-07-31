@@ -2,6 +2,9 @@ import { ethers } from "ethers";
 import { PoolClient } from "pg";
 import { upsertUser, resolveUserId, resolveMarketId } from "./helpers";
 import { updateHealthFactor } from "../health-factor-updater";
+import { createLogger } from "../../logger";
+
+const logger = createLogger("borrow-handler");
 
 /**
  * Handles the Borrow event emitted by BorrowFacet.
@@ -37,7 +40,7 @@ export async function handleBorrow(
     const marketId = await resolveMarketId(reserve, client);
 
     if (!marketId) {
-        console.warn(`[handleBorrow] Unknown market for asset ${reserve} — tx ${log.transactionHash}. Skipping.`);
+        logger.warn(`Unknown market for asset ${reserve} — tx ${log.transactionHash}. Skipping.`);
         return;
     }
 

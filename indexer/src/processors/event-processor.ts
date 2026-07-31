@@ -7,6 +7,9 @@ import { handleBorrow } from "./handlers/borrow.handler";
 import { handleRepay } from "./handlers/repay.handler";
 import { handleLiquidation } from "./handlers/liquidation.handler";
 import { handleReserveInitialized, handleReserveConfigured } from "./handlers/reserve-initialized.handler";
+import { createLogger } from "../logger";
+
+const logger = createLogger("EventProcessor");
 
 export class EventProcessor {
     private readonly chainId: number;
@@ -76,9 +79,7 @@ export class EventProcessor {
             parsed = result;
         } catch {
             // Event signature not in our ABI — a different contract or unknown event
-            console.debug(
-                `[EventProcessor] Unrecognised event in tx ${log.transactionHash} log ${log.index} — skipping.`,
-            );
+            logger.debug(`Unrecognised event in tx ${log.transactionHash} log ${log.index} — skipping.`);
             await this.markProcessed(log, client);
             return;
         }
@@ -140,11 +141,11 @@ export class EventProcessor {
             case "OracleUpdated":
             case "RoleGranted":
             case "RoleRevoked":
-                console.log(`[EventProcessor] Config event "${parsed.name}" recorded — tx ${log.transactionHash}`);
+                logger.info(`Config event "${parsed.name}" recorded — tx ${log.transactionHash}`);
                 break;
 
             default:
-                console.warn(`[EventProcessor] No handler for event "${parsed.name}" — tx ${log.transactionHash}`);
+                logger.warn(`No handler for event "${parsed.name}" — tx ${log.transactionHash}`);
         }
     }
 

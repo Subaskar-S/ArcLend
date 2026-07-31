@@ -1,4 +1,7 @@
 import { ethers } from "ethers";
+import { createLogger } from "../logger";
+
+const logger = createLogger("erc20-metadata");
 
 /** Minimal ERC20 ABI — only symbol() and decimals() */
 const ERC20_META_ABI = [
@@ -28,11 +31,11 @@ export async function fetchErc20Metadata(
 
     const [symbol, decimals] = await Promise.all([
         contract.symbol().catch(() => {
-            console.warn(`[fetchErc20Metadata] symbol() failed for ${assetAddress} — defaulting to UNKNOWN`);
+            logger.warn(`symbol() failed for ${assetAddress} — defaulting to UNKNOWN`);
             return "UNKNOWN";
         }),
         contract.decimals().catch(() => {
-            console.warn(`[fetchErc20Metadata] decimals() failed for ${assetAddress} — defaulting to 18`);
+            logger.warn(`decimals() failed for ${assetAddress} — defaulting to 18`);
             return 18;
         }),
     ]);

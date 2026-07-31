@@ -2,6 +2,9 @@ import { ethers } from "ethers";
 import { PoolClient } from "pg";
 import { upsertUser, resolveUserId, resolveMarketId } from "./helpers";
 import { updateHealthFactor } from "../health-factor-updater";
+import { createLogger } from "../../logger";
+
+const logger = createLogger("liquidation-handler");
 
 /**
  * Handles the LiquidationCall event emitted by LiquidationFacet.
@@ -38,9 +41,7 @@ export async function handleLiquidation(
     const debtMarketId = await resolveMarketId(debtAsset, client);
 
     if (!collateralMarketId || !debtMarketId) {
-        console.warn(
-            `[handleLiquidation] Unknown market(s) — collateral: ${collateralAsset}, debt: ${debtAsset} — tx ${log.transactionHash}. Skipping.`,
-        );
+        logger.warn(`Unknown market(s) — collateral: ${collateralAsset}, debt: ${debtAsset} — tx ${log.transactionHash}. Skipping.`);
         return;
     }
 

@@ -2,6 +2,9 @@ import { ethers } from "ethers";
 import { PoolClient } from "pg";
 import { upsertUser, resolveUserId, resolveMarketId } from "./helpers";
 import { updateHealthFactor } from "../health-factor-updater";
+import { createLogger } from "../../logger";
+
+const logger = createLogger("repay-handler");
 
 /**
  * Handles the Repay event emitted by BorrowFacet.
@@ -35,7 +38,7 @@ export async function handleRepay(
     const marketId = await resolveMarketId(reserve, client);
 
     if (!marketId) {
-        console.warn(`[handleRepay] Unknown market for asset ${reserve} — tx ${log.transactionHash}. Skipping.`);
+        logger.warn(`Unknown market for asset ${reserve} — tx ${log.transactionHash}. Skipping.`);
         return;
     }
 
@@ -56,7 +59,7 @@ export async function handleRepay(
         ],
     ).catch((err: unknown) => {
         if (err instanceof Error && (err as Error & { code?: string }).code === "42P01") {
-            console.warn("[handleRepay] repayments table does not exist. Run migration 002.");
+            logger.warn("repayments table does not exist. Run migration 002.");
         } else {
             throw err;
         }

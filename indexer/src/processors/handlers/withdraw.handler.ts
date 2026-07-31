@@ -2,6 +2,9 @@ import { ethers } from "ethers";
 import { PoolClient } from "pg";
 import { upsertUser, resolveUserId, resolveMarketId } from "./helpers";
 import { updateHealthFactor } from "../health-factor-updater";
+import { createLogger } from "../../logger";
+
+const logger = createLogger("withdraw-handler");
 
 /**
  * Handles the Withdraw event emitted by LendingPoolFacet.
@@ -31,7 +34,7 @@ export async function handleWithdraw(
     const marketId = await resolveMarketId(reserve, client);
 
     if (!marketId) {
-        console.warn(`[handleWithdraw] Unknown market for asset ${reserve} — tx ${log.transactionHash}. Skipping.`);
+        logger.warn(`Unknown market for asset ${reserve} — tx ${log.transactionHash}. Skipping.`);
         return;
     }
 
@@ -55,7 +58,7 @@ export async function handleWithdraw(
         // If the withdrawals table doesn't exist yet, log a warning and continue.
         // Run migration 002 to add it.
         if (err instanceof Error && (err as Error & { code?: string }).code === "42P01") {
-            console.warn("[handleWithdraw] withdrawals table does not exist. Run migration 002.");
+            logger.warn("withdrawals table does not exist. Run migration 002.");
         } else {
             throw err;
         }

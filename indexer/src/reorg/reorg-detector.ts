@@ -1,5 +1,8 @@
 import { Pool } from "pg";
 import { ethers } from "ethers";
+import { createLogger } from "../logger";
+
+const logger = createLogger("ReorgDetector");
 
 export class ReorgDetector {
     constructor(private db: Pool) {}
@@ -34,6 +37,6 @@ export class ReorgDetector {
             "UPDATE block_sync_state SET last_processed_block = last_processed_block - 1, last_processed_hash = 'UNKNOWN' WHERE chain_id = $1",
             [chainId]
         );
-        console.warn(`Chain reorg detected on chain ${chainId}. Sync cursor rolled back.`);
+        logger.warn(`Chain reorg detected on chain ${chainId}. Sync cursor rolled back.`);
     }
 }
