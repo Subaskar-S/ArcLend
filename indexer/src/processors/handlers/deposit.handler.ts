@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { PoolClient } from "pg";
 import { upsertUser, resolveUserId, resolveMarketId } from "./helpers";
+import { updateHealthFactor } from "../health-factor-updater";
 
 /**
  * Handles the Deposit event emitted by LendingPoolFacet.
@@ -67,4 +68,7 @@ export async function handleDeposit(
              updated_at = NOW()`,
         [userId, marketId, amount.toString()],
     );
+
+    // Recompute health factor for this user across all markets
+    await updateHealthFactor(userId, client);
 }
