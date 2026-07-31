@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { PoolClient } from "pg";
 import { upsertUser, resolveUserId, resolveMarketId } from "./helpers";
+import { updateHealthFactor } from "../health-factor-updater";
 
 /**
  * Handles the Withdraw event emitted by LendingPoolFacet.
@@ -69,4 +70,7 @@ export async function handleWithdraw(
          WHERE user_id = $2 AND market_id = $3`,
         [amount.toString(), userId, marketId],
     );
+
+    // Recompute health factor for this user across all markets
+    await updateHealthFactor(userId, client);
 }

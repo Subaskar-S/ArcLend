@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { PoolClient } from "pg";
 import { upsertUser, resolveUserId, resolveMarketId } from "./helpers";
+import { updateHealthFactor } from "../health-factor-updater";
 
 /**
  * Handles the LiquidationCall event emitted by LiquidationFacet.
@@ -82,4 +83,7 @@ export async function handleLiquidation(
          WHERE user_id = $2 AND market_id = $3`,
         [debtToCover.toString(), liquidatedUserId, debtMarketId],
     );
+
+    // Recompute health factor for the liquidated user across all markets
+    await updateHealthFactor(liquidatedUserId, client);
 }
