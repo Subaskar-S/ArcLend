@@ -7,3 +7,7 @@ coverage/
 coverage.json
 *.log
 .DS_Store
+
+# Foundry
+cache-foundry/
+artifacts-foundry/
