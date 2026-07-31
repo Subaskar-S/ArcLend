@@ -1,9 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { InjectQueue } from '@nestjs/bullmq';
 import { Repository } from 'typeorm';
+import { Queue } from 'bullmq';
 import { Price } from './entities/price.entity';
 import { Market } from '../markets/entities/market.entity';
 import { CreatePriceDto } from './dto/create-price.dto';
+import { HEALTH_FACTOR_QUEUE, HealthFactorJobData } from '../../infrastructure/queue/health-factor-job.types';
 
 @Injectable()
 export class PricesService {
@@ -12,6 +15,8 @@ export class PricesService {
         private readonly pricesRepository: Repository<Price>,
         @InjectRepository(Market)
         private readonly marketsRepository: Repository<Market>,
+        @InjectQueue(HEALTH_FACTOR_QUEUE)
+        private readonly healthFactorQueue: Queue<HealthFactorJobData>,
     ) {}
 
     /**
@@ -29,7 +34,22 @@ export class PricesService {
             price: createPriceDto.price,
             timestamp: new Date(createPriceDto.timestamp),
         });
-        return this.pricesRepository.save(price);
+        const saved = await this.pricesRepository.save(price);
+
+        // Enqueue a background job to recompute health factors for all users
+        // whose positions are affected by this price change
+        await this.healthFactorQueue.add(
+            'recompute',
+            { marketId: market.id, newPrice: createPriceDto.price },
+            {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 2000 },
+                removeOnComplete: 100,  // keep last 100 completed jobs for debugging
+                removeOnFail: 50,
+            },
+        );
+
+        return saved;
     }
 
     /**

@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { getQueueToken } from '@nestjs/bullmq';
 import { SelectQueryBuilder } from 'typeorm';
 import { PricesService } from './prices.service';
 import { Price } from './entities/price.entity';
 import { Market } from '../markets/entities/market.entity';
+import { HEALTH_FACTOR_QUEUE } from '../../infrastructure/queue/health-factor-job.types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -66,6 +68,7 @@ describe('PricesService', () => {
                 PricesService,
                 { provide: getRepositoryToken(Price), useValue: priceRepo },
                 { provide: getRepositoryToken(Market), useValue: marketRepo },
+                { provide: getQueueToken(HEALTH_FACTOR_QUEUE), useValue: { add: jest.fn().mockResolvedValue({}) } },
             ],
         }).compile();
 
