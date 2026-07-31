@@ -2,6 +2,9 @@ import { ethers } from "ethers";
 import { Pool } from "pg";
 import { EventProcessor } from "../processors/event-processor";
 import { DIAMOND_ADDRESS } from "../config";
+import { createLogger } from "../logger";
+
+const logger = createLogger("BlockWatcher");
 
 export class BlockWatcher {
     private readonly provider: ethers.JsonRpcProvider;
@@ -22,14 +25,14 @@ export class BlockWatcher {
         const resolvedChainId = await this.getChainId();
         this.eventProcessor = new EventProcessor(resolvedChainId, this.provider);
 
-        console.log(`[BlockWatcher] Starting on chainId=${resolvedChainId}, Diamond=${DIAMOND_ADDRESS || "ALL"}`);
+        logger.info(`Starting on chainId=${resolvedChainId}, Diamond=${DIAMOND_ADDRESS || "ALL"}`);
 
         // Initial catch-up from last processed block to current head
         await this.processBlocks();
 
         // Subscribe to new blocks for live indexing
         this.provider.on("block", async (blockNumber: number) => {
-            console.log(`[BlockWatcher] New block: ${blockNumber}`);
+            logger.debug(`New block: ${blockNumber}`);
             await this.processBlocks();
         });
     }
@@ -49,7 +52,7 @@ export class BlockWatcher {
                 const block = await this.provider.getBlock(nextBlockNum);
 
                 if (!block) {
-                    console.warn(`[BlockWatcher] Block ${nextBlockNum} not found — retrying in 1s`);
+                    logger.warn(`Block ${nextBlockNum} not found — retrying in 1s`);
                     await this.sleep(1000);
                     continue;
                 }
@@ -66,7 +69,7 @@ export class BlockWatcher {
                 lastProcessedBlock = nextBlockNum;
             }
         } catch (error) {
-            console.error("[BlockWatcher] Error in sync loop:", error);
+            logger.error("Error in sync loop", { error });
         } finally {
             this.isSyncing = false;
         }
@@ -105,7 +108,7 @@ export class BlockWatcher {
             await client.query("COMMIT");
 
             if (logs.length > 0) {
-                console.log(`[BlockWatcher] Block ${block.number}: processed ${logs.length} event(s)`);
+                logger.info(`Block ${block.number}: processed ${logs.length} event(s)`);
             }
         } catch (e) {
             await client.query("ROLLBACK");
@@ -138,9 +141,7 @@ export class BlockWatcher {
     private async handleReorg(block: ethers.Block): Promise<void> {
         const chainId = await this.getChainId();
 
-        console.warn(
-            `[BlockWatcher] REORG detected at block ${block.number} on chain ${chainId}. Rolling back...`,
-        );
+        logger.warn(`REORG detected at block ${block.number} on chain ${chainId}. Rolling back...`);
 
         // Determine the last safe block (one before the divergence)
         const res = await this.db.query<{ last_processed_block: number }>(
@@ -206,9 +207,7 @@ export class BlockWatcher {
 
             await client.query("COMMIT");
 
-            console.warn(
-                `[BlockWatcher] Rolled back to block ${rollbackToBlock} (hash: ${safeHash})`,
-            );
+            logger.warn(`Rolled back to block ${rollbackToBlock} (hash: ${safeHash})`);
         } catch (e) {
             await client.query("ROLLBACK");
             throw e;

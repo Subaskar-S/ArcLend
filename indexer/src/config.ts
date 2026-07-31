@@ -1,4 +1,7 @@
 import { ethers } from "ethers";
+import { createLogger } from "./logger";
+
+const logger = createLogger("config");
 
 /**
  * Combined ABI fragment for all events emitted by the Diamond proxy.
@@ -25,5 +28,5 @@ export const DIAMOND_INTERFACE = new ethers.Interface(DIAMOND_ABI_FRAGMENTS);
 export const DIAMOND_ADDRESS = (process.env.LENDING_POOL_ADDRESS || "").toLowerCase();
 
 if (!DIAMOND_ADDRESS) {
-    console.warn("WARNING: LENDING_POOL_ADDRESS is not set. Indexer will not filter logs by contract address.");
+    logger.warn("LENDING_POOL_ADDRESS is not set. Indexer will not filter logs by contract address.");
 }

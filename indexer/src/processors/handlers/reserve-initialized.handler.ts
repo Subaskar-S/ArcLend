@@ -1,6 +1,9 @@
 import { ethers } from "ethers";
 import { PoolClient } from "pg";
 import { fetchErc20Metadata } from "../../utils/erc20-metadata";
+import { createLogger } from "../../logger";
+
+const logger = createLogger("reserve-handler");
 
 /**
  * Handles the ReserveInitialized event emitted by ConfiguratorFacet.
@@ -52,9 +55,7 @@ export async function handleReserveInitialized(
         ],
     );
 
-    console.log(
-        `[handleReserveInitialized] Market upserted: ${symbol} (${asset}, ${decimals} decimals) — tx ${log.transactionHash}`,
-    );
+    logger.info(`Market upserted: ${symbol} (${asset}, ${decimals} decimals) — tx ${log.transactionHash}`);
 }
 
 /**
@@ -101,5 +102,5 @@ export async function handleReserveConfigured(
         ],
     );
 
-    console.log(`[handleReserveConfigured] Risk params updated for asset ${asset} — tx ${log.transactionHash}`);
+    logger.info(`Risk params updated for asset ${asset} — tx ${log.transactionHash}`);
 }

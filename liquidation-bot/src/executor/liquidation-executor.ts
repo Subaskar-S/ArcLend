@@ -1,5 +1,8 @@
 import { ethers } from 'ethers';
 import { RedisLockService } from '../locking/redis-lock';
+import { createLogger } from '../logger';
+
+const log = createLogger('LiquidationExecutor');
 
 /** Minimal ABIs — only the functions the bot needs */
 const LIQUIDATION_CALL_ABI = [
@@ -43,11 +46,6 @@ export class LiquidationExecutor {
      *  4. Execute liquidationCall()
      *  5. Wait for confirmation
      *  6. Release lock
-     *
-     * @param userAddress     The liquidatable user's wallet address
-     * @param debtAsset       ERC20 address of the asset to repay
-     * @param collateralAsset ERC20 address of the collateral to seize
-     * @param debtToCover     Amount of debt to cover (string to avoid JS number overflow)
      */
     async liquidate(
         userAddress: string,
@@ -60,27 +58,22 @@ export class LiquidationExecutor {
         // ── Step 1: Acquire distributed lock ─────────────────────────────────
         const acquired = await this.lockService.acquire(lockResource, LOCK_TTL_MS);
         if (!acquired) {
-            console.log(`[Executor] Lock busy — another instance is processing ${userAddress}`);
+            log.info(`Lock busy — another instance is processing ${userAddress}`);
             return;
         }
 
         try {
-            console.log(`[Executor] Starting liquidation for ${userAddress}`);
-            console.log(`[Executor]   debt asset:       ${debtAsset}`);
-            console.log(`[Executor]   collateral asset: ${collateralAsset}`);
-            console.log(`[Executor]   debt to cover:    ${debtToCover}`);
+            log.info(`Starting liquidation for ${userAddress}`);
+            log.info(`  debt asset:       ${debtAsset}`);
+            log.info(`  collateral asset: ${collateralAsset}`);
+            log.info(`  debt to cover:    ${debtToCover}`);
 
             const debtToCoverBn = BigInt(debtToCover);
 
             // ── Step 2: Simulate via eth_call ─────────────────────────────────
-            const profitable = await this.simulate(
-                collateralAsset,
-                debtAsset,
-                userAddress,
-                debtToCoverBn,
-            );
+            const profitable = await this.simulate(collateralAsset, debtAsset, userAddress, debtToCoverBn);
             if (!profitable) {
-                console.log(`[Executor] Simulation failed for ${userAddress} — skipping`);
+                log.info(`Simulation failed for ${userAddress} — skipping`);
                 return;
             }
 
@@ -91,7 +84,7 @@ export class LiquidationExecutor {
             await this.executeCall(collateralAsset, debtAsset, userAddress, debtToCoverBn);
 
         } catch (error) {
-            console.error(`[Executor] Liquidation failed for ${userAddress}:`, error);
+            log.error(`Liquidation failed for ${userAddress}`, { error });
             // Do not rethrow — the outer loop continues with the next user
         } finally {
             // ── Step 6: Always release the lock ──────────────────────────────
@@ -108,18 +101,13 @@ export class LiquidationExecutor {
         userAddress: string,
         debtToCover: bigint,
     ): Promise<void> {
-        const pool = new ethers.Contract(
-            this.lendingPoolAddress,
-            LIQUIDATION_CALL_ABI,
-            this.wallet,
-        );
+        const pool = new ethers.Contract(this.lendingPoolAddress, LIQUIDATION_CALL_ABI, this.wallet);
 
         const tx = await pool.liquidationCall(collateralAsset, debtAsset, userAddress, debtToCover);
-        console.log(`[Executor] TX sent: ${tx.hash}`);
+        log.info(`TX sent: ${tx.hash}`);
 
-        // ── Step 5: Wait for on-chain confirmation ────────────────────────────
         const receipt = await tx.wait();
-        console.log(`[Executor] Confirmed in block ${receipt.blockNumber} — gas used: ${receipt.gasUsed}`);
+        log.info(`Confirmed in block ${receipt.blockNumber} — gas used: ${receipt.gasUsed}`);
     }
 
     /**
@@ -133,22 +121,12 @@ export class LiquidationExecutor {
         debtToCover: bigint,
     ): Promise<boolean> {
         try {
-            const pool = new ethers.Contract(
-                this.lendingPoolAddress,
-                LIQUIDATION_CALL_ABI,
-                this.wallet,
-            );
-            // staticCall does not broadcast — uses eth_call
-            await pool.liquidationCall.staticCall(
-                collateralAsset,
-                debtAsset,
-                userAddress,
-                debtToCover,
-            );
+            const pool = new ethers.Contract(this.lendingPoolAddress, LIQUIDATION_CALL_ABI, this.wallet);
+            await pool.liquidationCall.staticCall(collateralAsset, debtAsset, userAddress, debtToCover);
             return true;
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            console.warn(`[Executor] Simulation reverted: ${message}`);
+            log.warn(`Simulation reverted: ${message}`);
             return false;
         }
     }
@@ -161,18 +139,15 @@ export class LiquidationExecutor {
     private async ensureApproval(debtAsset: string, debtToCover: bigint): Promise<void> {
         const token = new ethers.Contract(debtAsset, ERC20_APPROVE_ABI, this.wallet);
 
-        const currentAllowance: bigint = await token.allowance(
-            this.wallet.address,
-            this.lendingPoolAddress,
-        );
+        const currentAllowance: bigint = await token.allowance(this.wallet.address, this.lendingPoolAddress);
 
         if (currentAllowance >= debtToCover) {
             return; // already approved
         }
 
-        console.log(`[Executor] Approving lending pool to spend ${debtAsset}...`);
+        log.info(`Approving lending pool to spend ${debtAsset}...`);
         const approveTx = await token.approve(this.lendingPoolAddress, MAX_UINT256);
         await approveTx.wait();
-        console.log(`[Executor] Approval confirmed for ${debtAsset}`);
+        log.info(`Approval confirmed for ${debtAsset}`);
     }
 }
