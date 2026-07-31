@@ -3,13 +3,16 @@
     "module": "commonjs",
     "target": "es2020",
     "outDir": "./dist",
-    "baseUrl": "./",
+    "rootDir": "./src",
     "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "emitDecoratorMetadata": true,
-    "experimentalDecorators": true
-  }
+    "experimentalDecorators": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
