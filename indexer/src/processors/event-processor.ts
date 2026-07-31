@@ -10,9 +10,11 @@ import { handleReserveInitialized, handleReserveConfigured } from "./handlers/re
 
 export class EventProcessor {
     private readonly chainId: number;
+    private readonly provider: ethers.JsonRpcProvider;
 
-    constructor(chainId: number) {
+    constructor(chainId: number, provider: ethers.JsonRpcProvider) {
         this.chainId = chainId;
+        this.provider = provider;
     }
 
     /**
@@ -123,7 +125,7 @@ export class EventProcessor {
                 break;
 
             case "ReserveInitialized":
-                await handleReserveInitialized(parsed, log, client);
+                await handleReserveInitialized(parsed, log, client, this.provider);
                 break;
 
             case "ReserveConfigured":

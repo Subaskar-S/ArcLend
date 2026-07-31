@@ -14,13 +14,13 @@ export class BlockWatcher {
         this.provider = new ethers.JsonRpcProvider(rpcUrl);
         this.db = dbConnection;
         // chainId is resolved lazily on first use; EventProcessor is re-created in start()
-        this.eventProcessor = new EventProcessor(0);
+        this.eventProcessor = new EventProcessor(0, this.provider);
     }
 
     async start(): Promise<void> {
         // Resolve chain ID once at startup, then rebuild EventProcessor with real chainId
         const resolvedChainId = await this.getChainId();
-        this.eventProcessor = new EventProcessor(resolvedChainId);
+        this.eventProcessor = new EventProcessor(resolvedChainId, this.provider);
 
         console.log(`[BlockWatcher] Starting on chainId=${resolvedChainId}, Diamond=${DIAMOND_ADDRESS || "ALL"}`);
 
